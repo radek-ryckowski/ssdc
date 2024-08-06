@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "client",
+    srcs = ["main.go"],
+    importpath = "github.com/radek-ryckowski/ssdc/cmd/client",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto:cache",
+        "@org_golang_google_grpc//:go_default_library",
+    ],
+)
