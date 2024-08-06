@@ -1,0 +1,165 @@
+package cache
+
+import (
+	"encoding/gob"
+	"fmt"
+
+	"os"
+	"path"
+	"sync"
+	"time"
+
+	"github.com/radek-ryckowski/ssdc/db"
+)
+
+const (
+	// WalName is the name of the WAL file
+	WalName = "wal"
+)
+
+// Logger interface for logging
+type Logger interface {
+	Println(v ...interface{})
+}
+
+// KeyValue struct to hold key-value pairs
+type KeyValue struct {
+	Key   string
+	Value []byte
+}
+
+// Cache struct to hold the channel, a counter, a mutex, a wait group, and a logger
+type Cache struct {
+	signalChan chan int64
+	counter    int
+	mu         sync.Mutex
+	store      map[string][]byte
+	walFile    *os.File
+	cacheSize  int
+	walPath    string
+	encoder    *gob.Encoder
+	dbStorage  db.DBStorage
+	logger     Logger
+}
+
+// NewCache creates a new Cache instance with a logger
+func NewCache(CacheSize, MaxSizeOfChannel int, walPath string, dbstore db.DBStorage, logger Logger) *Cache {
+	cache := &Cache{
+		signalChan: make(chan int64, MaxSizeOfChannel),
+		store:      make(map[string][]byte),
+		cacheSize:  CacheSize,
+		walPath:    walPath,
+		dbStorage:  dbstore,
+		logger:     logger,
+	}
+	walFilePath := path.Join(walPath, WalName)
+	if _, err := os.Stat(walFilePath); os.IsNotExist(err) {
+		walFile, err := os.Create(walFilePath)
+		if err != nil {
+			logger.Println("Error creating WAL file:", err)
+			return nil
+		}
+		cache.walFile = walFile
+	} else {
+		walFile, err := os.OpenFile(walFilePath, os.O_RDWR, 0644)
+		if err != nil {
+			logger.Println("Error opening WAL file:", err)
+			return nil
+		}
+		cache.walFile = walFile
+		if err := cache.Recovery(); err != nil {
+			logger.Println("Error recovering from WAL file:", err)
+			return nil
+		}
+	}
+	cache.encoder = gob.NewEncoder(cache.walFile)
+	return cache
+}
+
+// Store method to store a key-value pair in the cache
+func (c *Cache) Store(key, value []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	err := c.encoder.Encode(KeyValue{Key: string(key), Value: value})
+	if err != nil {
+		return err
+	}
+	c.store[string(key)] = value
+	c.counter++
+
+	if c.counter >= c.cacheSize {
+		c.walFile.Close()
+		timestamp := time.Now().UnixNano()
+		walPath := path.Join(c.walPath, WalName)
+		oldWalPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, timestamp))
+		if err := os.Rename(walPath, oldWalPath); err != nil {
+			return err
+		}
+		walFile, err := os.Create(walPath)
+		if err != nil {
+			return err
+		}
+		c.walFile = walFile
+		c.encoder = gob.NewEncoder(c.walFile)
+		c.signalChan <- int64(timestamp)
+		c.counter = 0
+	}
+	return nil
+}
+
+// WaitForSignal method to wait for signals and reset the counter
+func (c *Cache) WaitForSignal() {
+	for signal := range c.signalChan {
+		walPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, signal))
+		walFile, err := os.OpenFile(walPath, os.O_RDWR, 0644)
+		if err != nil {
+			c.logger.Println("Error opening WAL file:", err)
+			continue
+		}
+		pushToDb := make(map[string][]byte)
+		decoder := gob.NewDecoder(walFile)
+		for {
+			var kv KeyValue
+			if err := decoder.Decode(&kv); err != nil {
+				break
+			}
+			pushToDb[kv.Key] = kv.Value
+		}
+		succeded := false
+		if err := c.dbStorage.Push(pushToDb); err != nil {
+			c.logger.Println("Error pushing to DB:", err)
+		} else {
+			succeded = true
+		}
+		walFile.Close()
+		if succeded {
+			c.mu.Lock()
+			for k := range pushToDb {
+				delete(c.store, k)
+			}
+			if err := os.Remove(walPath); err != nil {
+				c.logger.Println("Error removing WAL file:", err)
+			}
+			c.mu.Unlock()
+		}
+	}
+}
+
+// CloseSignalChannel method to close the signal channel
+func (c *Cache) CloseSignalChannel() {
+	close(c.signalChan)
+}
+
+// Recovery method to read the WAL file and populate the store map
+func (c *Cache) Recovery() error {
+	decoder := gob.NewDecoder(c.walFile)
+	for {
+		var kv KeyValue
+		if err := decoder.Decode(&kv); err != nil {
+			break
+		}
+		c.store[kv.Key] = kv.Value
+		c.counter++
+	}
+	return nil
+}
