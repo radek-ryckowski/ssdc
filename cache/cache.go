@@ -191,6 +191,22 @@ func (c *Cache) Get(key []byte) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if value, ok := c.store[string(key)]; ok {
+		cacheHits.Inc()
+		return value, nil
+	}
+	// check if in RO
+	if value, ok := c.roCache.Get(string(key)); ok {
+		cacheHits.Inc()
+		return value, nil
+	}
+	cacheMisses.Inc()
+	value, err := c.dbStorage.Get(string(key))
+	if err != nil {
+		dbErrors.Inc()
+		return nil, err
+	}
+	c.roCache.Put(string(key), value)
+	if value != nil {
 		return value, nil
 	}
 	return nil, fmt.Errorf("key not found")

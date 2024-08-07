@@ -10,3 +10,14 @@ go_library(
         "@org_golang_google_grpc//:go_default_library",
     ],
 )
+
+go_library(
+    name = "client_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/radek-ryckowski/ssdc/examples/client",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//proto/cache",
+        "@org_golang_google_grpc//:go_default_library",
+    ],
+)
