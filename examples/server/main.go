@@ -71,7 +71,7 @@ func main() {
 	if *peers == "" {
 		log.Fatalf("no peers provided")
 	}
-	peers := make([]pb.CacheServiceClient, 0)
+	peers := make([]*cacheService.CacheClusterClients, 0)
 	for _, peer := range peerList {
 		conn, err := grpc.NewClient(peer, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithKeepaliveParams(kacp))
 		if err != nil {
@@ -79,7 +79,12 @@ func main() {
 		}
 		defer conn.Close()
 		client := pb.NewCacheServiceClient(conn)
-		peers = append(peers, client)
+		ccc := &cacheService.CacheClusterClients{
+			Address:       peer,
+			ServiceClient: client,
+			Active:        true,
+		}
+		peers = append(peers, ccc)
 	}
 	cServer.SetPeers(peers)
 
