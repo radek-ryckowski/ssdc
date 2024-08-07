@@ -29,6 +29,7 @@ var (
 )
 
 func main() {
+	flag.Parse()
 	conn, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithKeepaliveParams(kacp))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
@@ -57,5 +58,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not set value: %v", err)
 	}
-	fmt.Printf("Set response: %v\n", resp)
+	fmt.Printf("Response.Nodes: %v\n", resp.ConsistentNodes)
+	fmt.Printf("Response.Succes: %v\n", resp.Success)
 }

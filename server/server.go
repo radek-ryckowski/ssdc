@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	nodeErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+	nodeErrors = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "node_errors_total",
 		Help: "Total number of connection errors hits",
-	}, []string{"peer_address"})
+	})
 )
 
 type Server struct {
@@ -43,8 +43,8 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	if err != nil {
 		return &pb.SetResponse{Success: false}, err
 	}
+	nodeCount++
 	if req.Local {
-		nodeCount++
 		return &pb.SetResponse{Success: true, ConsistentNodes: nodeCount}, nil
 	}
 	quorum := len(s.peers) / 2 // local +1
@@ -61,7 +61,7 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 			defer wg.Done()
 			resp, err := peer.Set(ctx, &pb.SetRequest{Uuid: req.Uuid, Value: req.Value, Local: true})
 			if err != nil {
-				nodeErrors.WithLabelValues().Inc() //TODO add peer address to the metric as label
+				nodeErrors.Inc() //TODO add peer address to the metric as label
 				return
 			}
 			if resp.Success {
