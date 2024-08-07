@@ -3,25 +3,29 @@ option go_package = "github.com/radek-ryckowski/ssdc/proto/cache;cache";
 
 package cache;
 
+import "google/protobuf/any.proto";
+
 service CacheService {
   rpc Set(SetRequest) returns (SetResponse);
   rpc Get(GetRequest) returns (GetResponse);
 }
 
 message SetRequest {
-  string key = 1;
-  string value = 2;
+  string uuid = 1;
+  google.protobuf.Any value = 2;
+  bool local = 3;
 }
 
 message SetResponse {
   bool success = 1;
+  int32 consistent_nodes = 2;
 }
 
 message GetRequest {
-  string key = 1;
+  string uuid = 1;
 }
 
 message GetResponse {
-  string value = 1;
+  google.protobuf.Any value = 1;
   bool found = 2;
 }
