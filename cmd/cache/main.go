@@ -14,7 +14,16 @@ import (
 // Example usage
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags)
-	c := cache.NewCache(10, 8192, "/tmp", db.NewInMemoryDatabase(), logger)
+	config := &cache.CacheConfig{
+		CacheSize:        10,
+		RoCacheSize:      65536,
+		MaxSizeOfChannel: 8192,
+		WalPath:          "/tmp",
+		DBStorage:        db.NewInMemoryDatabase(),
+		Logger:           logger,
+	}
+
+	c := cache.NewCache(config)
 	if c == nil {
 		logger.Println("Error creating cache")
 		return

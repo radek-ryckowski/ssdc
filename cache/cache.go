@@ -28,6 +28,15 @@ type KeyValue struct {
 	Value []byte
 }
 
+type CacheConfig struct {
+	CacheSize        int
+	RoCacheSize      int
+	MaxSizeOfChannel int
+	WalPath          string
+	DBStorage        db.DBStorage
+	Logger           Logger
+}
+
 // Cache struct to hold the channel, a counter, a mutex, a wait group, and a logger
 type Cache struct {
 	signalChan chan int64
@@ -40,35 +49,37 @@ type Cache struct {
 	encoder    *gob.Encoder
 	dbStorage  db.DBStorage
 	logger     Logger
+	roCache    *LRUCache
 }
 
 // NewCache creates a new Cache instance with a logger
-func NewCache(CacheSize, MaxSizeOfChannel int, walPath string, dbstore db.DBStorage, logger Logger) *Cache {
+func NewCache(config *CacheConfig) *Cache {
 	cache := &Cache{
-		signalChan: make(chan int64, MaxSizeOfChannel),
+		signalChan: make(chan int64, config.MaxSizeOfChannel),
 		store:      make(map[string][]byte),
-		cacheSize:  CacheSize,
-		walPath:    walPath,
-		dbStorage:  dbstore,
-		logger:     logger,
+		cacheSize:  config.CacheSize,
+		walPath:    config.WalPath,
+		dbStorage:  config.DBStorage,
+		logger:     config.Logger,
+		roCache:    NewLRUCache(config.RoCacheSize),
 	}
-	walFilePath := path.Join(walPath, WalName)
+	walFilePath := path.Join(config.WalPath, WalName)
 	if _, err := os.Stat(walFilePath); os.IsNotExist(err) {
 		walFile, err := os.Create(walFilePath)
 		if err != nil {
-			logger.Println("Error creating WAL file:", err)
+			cache.logger.Println("Error creating WAL file:", err)
 			return nil
 		}
 		cache.walFile = walFile
 	} else {
 		walFile, err := os.OpenFile(walFilePath, os.O_RDWR, 0644)
 		if err != nil {
-			logger.Println("Error opening WAL file:", err)
+			cache.logger.Println("Error opening WAL file:", err)
 			return nil
 		}
 		cache.walFile = walFile
 		if err := cache.Recovery(); err != nil {
-			logger.Println("Error recovering from WAL file:", err)
+			cache.logger.Println("Error recovering from WAL file:", err)
 			return nil
 		}
 	}
@@ -143,6 +154,16 @@ func (c *Cache) WaitForSignal() {
 			c.mu.Unlock()
 		}
 	}
+}
+
+// Get method to get a value from the cache
+func (c *Cache) Get(key []byte) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if value, ok := c.store[string(key)]; ok {
+		return value, nil
+	}
+	return nil, fmt.Errorf("key not found")
 }
 
 // CloseSignalChannel method to close the signal channel
