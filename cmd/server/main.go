@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/radek-ryckowski/ssdc/cache"
+	"github.com/radek-ryckowski/ssdc/db"
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
 	"google.golang.org/grpc"
 )
@@ -76,7 +77,9 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterCacheServiceServer(s, &server{store: make(map[string]string)})
+	logger := log.New(log.Writer(), "", log.LstdFlags)
+	c := cache.NewCache(10, 8192, "/tmp", db.NewInMemoryDatabase(), logger)
+	pb.RegisterCacheServiceServer(s, &server{c: c})
 	peerList := strings.Split(*peers, ",")
 	if len(peerList) == 0 {
 		log.Fatalf("no peers provided")
