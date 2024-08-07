@@ -9,25 +9,75 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/radek-ryckowski/ssdc/cache"
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
 var (
-	nodeErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+	nodeErrors = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "node_errors_total",
 		Help: "Total number of connection errors hits",
-	}, []string{"peer_address"})
+	})
 )
+
+type CacheClusterClients struct {
+	ServiceClient pb.CacheServiceClient
+	Node          int
+	Address       string
+	Active        bool
+	Conn          *grpc.ClientConn
+	sync.RWMutex
+	Connect func(address string) (*grpc.ClientConn, error)
+}
+
+func (ccc *CacheClusterClients) Init() error {
+	conn, err := ccc.Connect(ccc.Address)
+	ccc.Active = err == nil
+	if err != nil {
+		return err
+	}
+	ccc.Conn = conn
+	ccc.ServiceClient = pb.NewCacheServiceClient(conn)
+	return nil
+}
 
 type Server struct {
 	pb.UnimplementedCacheServiceServer
 	mu    sync.Mutex
 	c     *cache.Cache
-	peers []pb.CacheServiceClient
+	peers []*CacheClusterClients
 }
 
 func (s *Server) Start() {
 	go s.c.WaitForSignal()
+
+	ticker := time.NewTicker(10 * time.Second)
+	go func() {
+		for range ticker.C {
+			for _, peer := range s.peers {
+				peer.RLock()
+				if !peer.Active {
+					peer.RUnlock()
+					peer.Lock()
+					if peer.Conn != nil {
+						peer.Conn.Close()
+					}
+					if peer.ServiceClient != nil {
+						peer.ServiceClient = nil
+					}
+					err := peer.Init()
+					if err != nil {
+						nodeErrors.Inc() //TODO add peer address to the metric as label
+						continue
+					}
+					peer.Unlock()
+				} else {
+					peer.RUnlock()
+				}
+			}
+		}
+	}()
+
 }
 
 func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, error) {
@@ -43,8 +93,8 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	if err != nil {
 		return &pb.SetResponse{Success: false}, err
 	}
+	nodeCount++
 	if req.Local {
-		nodeCount++
 		return &pb.SetResponse{Success: true, ConsistentNodes: nodeCount}, nil
 	}
 	quorum := len(s.peers) / 2 // local +1
@@ -55,13 +105,16 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	var wg sync.WaitGroup
 	wg.Add(len(s.peers)) // wait only for quorum number of peers to respond with success
 	for _, peer := range s.peers {
-		go func(peer pb.CacheServiceClient) {
+		go func(peer *CacheClusterClients) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			defer wg.Done()
-			resp, err := peer.Set(ctx, &pb.SetRequest{Uuid: req.Uuid, Value: req.Value, Local: true})
+			resp, err := peer.ServiceClient.Set(ctx, &pb.SetRequest{Uuid: req.Uuid, Value: req.Value, Local: true})
 			if err != nil {
-				nodeErrors.WithLabelValues().Inc() //TODO add peer address to the metric as label
+				nodeErrors.Inc() //TODO add peer address to the metric as label
+				peer.Lock()
+				peer.Active = false
+				peer.Unlock()
 				return
 			}
 			if resp.Success {
@@ -84,12 +137,12 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 }
 
 // SetPerrs sets the peers for the server
-func (s *Server) SetPeers(peers []pb.CacheServiceClient) {
+func (s *Server) SetPeers(peers []*CacheClusterClients) {
 	s.peers = peers
 }
 
 // GetPeers returns the peers for the server
-func (s *Server) GetPeers() []pb.CacheServiceClient {
+func (s *Server) GetPeers() []*CacheClusterClients {
 	return s.peers
 }
 

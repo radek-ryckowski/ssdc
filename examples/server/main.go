@@ -71,15 +71,24 @@ func main() {
 	if *peers == "" {
 		log.Fatalf("no peers provided")
 	}
-	peers := make([]pb.CacheServiceClient, 0)
-	for _, peer := range peerList {
-		conn, err := grpc.NewClient(peer, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithKeepaliveParams(kacp))
-		if err != nil {
-			log.Fatalf("failed to connect to peer %s: %v", peer, err)
+	peers := make([]*cacheService.CacheClusterClients, 0)
+	for node, peer := range peerList {
+		ccc := &cacheService.CacheClusterClients{
+			Address: peer,
+			Active:  true,
+			Connect: func(address string) (*grpc.ClientConn, error) {
+				conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithKeepaliveParams(kacp))
+				return conn, err
+			},
 		}
-		defer conn.Close()
-		client := pb.NewCacheServiceClient(conn)
-		peers = append(peers, client)
+		ccc.Lock()
+		ccc.Node = node
+		err := ccc.Init()
+		ccc.Unlock()
+		if err != nil {
+			log.Printf("could not connect to peer %s: %v", peer, err)
+		}
+		peers = append(peers, ccc)
 	}
 	cServer.SetPeers(peers)
 
