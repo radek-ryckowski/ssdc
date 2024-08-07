@@ -9,12 +9,36 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/radek-ryckowski/ssdc/db"
 )
 
 const (
 	// WalName is the name of the WAL file
 	WalName = "wal"
+)
+
+var (
+	cacheHits = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "cache_hits_total",
+		Help: "Total number of cache hits",
+	})
+
+	cacheMisses = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "cache_misses_total",
+		Help: "Total number of cache misses",
+	})
+
+	walErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "wal_errors_total",
+		Help: "Total number of WAL errors",
+	})
+
+	dbErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "db_errors_total",
+		Help: "Total number of DB errors",
+	})
 )
 
 // Logger interface for logging
@@ -67,6 +91,7 @@ func NewCache(config *CacheConfig) *Cache {
 	if _, err := os.Stat(walFilePath); os.IsNotExist(err) {
 		walFile, err := os.Create(walFilePath)
 		if err != nil {
+			walErrors.Inc()
 			cache.logger.Println("Error creating WAL file:", err)
 			return nil
 		}
@@ -74,11 +99,13 @@ func NewCache(config *CacheConfig) *Cache {
 	} else {
 		walFile, err := os.OpenFile(walFilePath, os.O_RDWR, 0644)
 		if err != nil {
+			walErrors.Inc()
 			cache.logger.Println("Error opening WAL file:", err)
 			return nil
 		}
 		cache.walFile = walFile
 		if err := cache.Recovery(); err != nil {
+			walErrors.Inc()
 			cache.logger.Println("Error recovering from WAL file:", err)
 			return nil
 		}
@@ -124,6 +151,7 @@ func (c *Cache) WaitForSignal() {
 		walPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, signal))
 		walFile, err := os.OpenFile(walPath, os.O_RDWR, 0644)
 		if err != nil {
+			walErrors.Inc()
 			c.logger.Println("Error opening WAL file:", err)
 			continue
 		}
@@ -138,6 +166,7 @@ func (c *Cache) WaitForSignal() {
 		}
 		succeded := false
 		if err := c.dbStorage.Push(pushToDb); err != nil {
+			dbErrors.Inc()
 			c.logger.Println("Error pushing to DB:", err)
 		} else {
 			succeded = true
@@ -149,6 +178,7 @@ func (c *Cache) WaitForSignal() {
 				delete(c.store, k)
 			}
 			if err := os.Remove(walPath); err != nil {
+				walErrors.Inc()
 				c.logger.Println("Error removing WAL file:", err)
 			}
 			c.mu.Unlock()
