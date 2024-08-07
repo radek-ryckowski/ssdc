@@ -24,7 +24,7 @@ type server struct {
 	pb.UnimplementedCacheServiceServer
 	mu    sync.Mutex
 	c     *cache.Cache
-	perrs []pb.CacheServiceClient
+	peers []pb.CacheServiceClient
 }
 
 func (s *server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, error) {
@@ -35,15 +35,15 @@ func (s *server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	if err != nil {
 		return &pb.SetResponse{Success: false}, err
 	}
-	quorum := len(s.perrs) / 2 // local +1
+	quorum := len(s.peers) / 2 // local +1
 	// Store the value in the peers using go routines to avoid blocking if quorum number of peers return success response is true
 	// use context with timeout to avoid blocking forever
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var successCount int
 	var wg sync.WaitGroup
-	wg.Add(len(s.perrs))
-	for _, peer := range s.perrs {
+	wg.Add(len(s.peers))
+	for _, peer := range s.peers {
 		go func(peer pb.CacheServiceClient) {
 			defer wg.Done()
 			resp, err := peer.Set(ctx, &pb.SetRequest{Key: req.Key, Value: req.Value})
@@ -66,7 +66,7 @@ func (s *server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 func (s *server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return &pb.GetResponse{Value: []byte{}, Found: []byte{}}, nil
+	return &pb.GetResponse{}, nil
 }
 
 func main() {
@@ -79,9 +79,10 @@ func main() {
 	s := grpc.NewServer()
 	logger := log.New(log.Writer(), "", log.LstdFlags)
 	c := cache.NewCache(10, 8192, "/tmp", db.NewInMemoryDatabase(), logger)
-	pb.RegisterCacheServiceServer(s, &server{c: c})
+	cServer := &server{c: c}
 	peerList := strings.Split(*peers, ",")
-	if len(peerList) == 0 {
+
+	if *peers == "" {
 		log.Fatalf("no peers provided")
 	}
 	for _, peer := range peerList {
@@ -91,9 +92,9 @@ func main() {
 		}
 		defer conn.Close()
 		client := pb.NewCacheServiceClient(conn)
-		s.perrs = append(s.perrs, client)
+		cServer.peers = append(cServer.peers, client)
 	}
-
+	pb.RegisterCacheServiceServer(s, cServer)
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
