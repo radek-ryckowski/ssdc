@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/radek-ryckowski/ssdc/cache"
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -24,7 +25,20 @@ type CacheClusterClients struct {
 	Node          int
 	Address       string
 	Active        bool
+	Conn          *grpc.ClientConn
 	sync.RWMutex
+	Connect func(address string) (*grpc.ClientConn, error)
+}
+
+func (ccc *CacheClusterClients) Init() error {
+	conn, err := ccc.Connect(ccc.Address)
+	ccc.Active = err == nil
+	if err != nil {
+		return err
+	}
+	ccc.Conn = conn
+	ccc.ServiceClient = pb.NewCacheServiceClient(conn)
+	return nil
 }
 
 type Server struct {
@@ -36,6 +50,33 @@ type Server struct {
 
 func (s *Server) Start() {
 	go s.c.WaitForSignal()
+
+	ticker := time.NewTicker(10 * time.Second)
+	go func() {
+		for range ticker.C {
+			for _, peer := range s.peers {
+				peer.RLock()
+				if !peer.Active {
+					peer.RUnlock()
+					peer.Lock()
+					if peer.Conn != nil {
+						peer.Conn.Close()
+					}
+					if peer.ServiceClient != nil {
+						peer.ServiceClient = nil
+					}
+					err := peer.Init()
+					if err != nil {
+						nodeErrors.Inc() //TODO add peer address to the metric as label
+						continue
+					}
+					peer.Unlock()
+				} else {
+					peer.RUnlock()
+				}
+			}
+		}
+	}()
 
 }
 
