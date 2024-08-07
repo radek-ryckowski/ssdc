@@ -35,6 +35,11 @@ var (
 		Help: "Total number of WAL errors",
 	})
 
+	walSwitchover = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "wal_switchover_total",
+		Help: "Total number of WAL switchover",
+	})
+
 	dbErrors = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "db_errors_total",
 		Help: "Total number of DB errors",
@@ -180,6 +185,8 @@ func (c *Cache) WaitForSignal() {
 			if err := os.Remove(walPath); err != nil {
 				walErrors.Inc()
 				c.logger.Println("Error removing WAL file:", err)
+			} else {
+				walSwitchover.Inc()
 			}
 			c.mu.Unlock()
 		}
