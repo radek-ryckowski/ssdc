@@ -7,8 +7,9 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//cache",
-	"//db",
+        "//db",
         "//proto:cache",
+        "//server",
         "@org_golang_google_grpc//:go_default_library",
     ],
 )
