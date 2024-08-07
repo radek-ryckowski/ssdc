@@ -8,7 +8,7 @@ go_library(
     deps = [
         "//cache",
         "//db",
-        "//proto:cache",
+        "//proto/cache",
         "//server",
         "@org_golang_google_grpc//:go_default_library",
     ],

@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	port  = flag.String("port", ":50051", "the port to listen on")
-	peers = flag.String("peers", "", "comma-separated list of peers")
+	port        = flag.String("port", ":50051", "the port to listen on")
+	httpAddress = flag.String("http", ":8080", "the address to listen on for HTTP requests")
+	peers       = flag.String("peers", "", "comma-separated list of peers")
 )
 
 func main() {
@@ -57,6 +58,7 @@ func main() {
 		peers = append(peers, client)
 	}
 	cServer.SetPeers(peers)
+	cServer.Start(*httpAddress)
 	pb.RegisterCacheServiceServer(s, cServer)
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
