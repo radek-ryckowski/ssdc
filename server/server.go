@@ -19,15 +19,24 @@ var (
 	})
 )
 
+type CacheClusterClients struct {
+	ServiceClient pb.CacheServiceClient
+	Node          int
+	Address       string
+	Active        bool
+	sync.RWMutex
+}
+
 type Server struct {
 	pb.UnimplementedCacheServiceServer
 	mu    sync.Mutex
 	c     *cache.Cache
-	peers []pb.CacheServiceClient
+	peers []*CacheClusterClients
 }
 
 func (s *Server) Start() {
 	go s.c.WaitForSignal()
+
 }
 
 func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, error) {
@@ -55,13 +64,16 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	var wg sync.WaitGroup
 	wg.Add(len(s.peers)) // wait only for quorum number of peers to respond with success
 	for _, peer := range s.peers {
-		go func(peer pb.CacheServiceClient) {
+		go func(peer *CacheClusterClients) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			defer wg.Done()
-			resp, err := peer.Set(ctx, &pb.SetRequest{Uuid: req.Uuid, Value: req.Value, Local: true})
+			resp, err := peer.ServiceClient.Set(ctx, &pb.SetRequest{Uuid: req.Uuid, Value: req.Value, Local: true})
 			if err != nil {
 				nodeErrors.Inc() //TODO add peer address to the metric as label
+				peer.Lock()
+				peer.Active = false
+				peer.Unlock()
 				return
 			}
 			if resp.Success {
@@ -84,12 +96,12 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 }
 
 // SetPerrs sets the peers for the server
-func (s *Server) SetPeers(peers []pb.CacheServiceClient) {
+func (s *Server) SetPeers(peers []*CacheClusterClients) {
 	s.peers = peers
 }
 
 // GetPeers returns the peers for the server
-func (s *Server) GetPeers() []pb.CacheServiceClient {
+func (s *Server) GetPeers() []*CacheClusterClients {
 	return s.peers
 }
 
