@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "server",
+    srcs = ["server.go"],
+    importpath = "github.com/radek-ryckowski/ssdc/server",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cache",
+        "//proto/cache",
+        "@com_github_prometheus_client_golang//prometheus/promhttp",
+    ],
+)

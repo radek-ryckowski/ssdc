@@ -6,7 +6,7 @@ go_library(
     importpath = "github.com/radek-ryckowski/ssdc/cmd/client",
     visibility = ["//visibility:public"],
     deps = [
-        "//proto:cache",
+        "//proto/cache",
         "@org_golang_google_grpc//:go_default_library",
     ],
 )
