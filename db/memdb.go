@@ -21,3 +21,12 @@ func (db *InMemoryDatabase) Push(batch map[string][]byte) error {
 	}
 	return nil
 }
+
+func (db *InMemoryDatabase) Get(key string) ([]byte, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if v, ok := db.data[key]; ok {
+		return v, nil
+	}
+	return nil, nil
+}

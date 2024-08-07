@@ -12,7 +12,7 @@ type LRUCache struct {
 
 type entry struct {
 	key   string
-	value interface{}
+	value []byte
 }
 
 func NewLRUCache(capacity int) *LRUCache {
@@ -23,7 +23,7 @@ func NewLRUCache(capacity int) *LRUCache {
 	}
 }
 
-func (c *LRUCache) Get(key string) (interface{}, bool) {
+func (c *LRUCache) Get(key string) ([]byte, bool) {
 	if elem, ok := c.cache[key]; ok {
 		c.list.MoveToFront(elem)
 		return elem.Value.(*entry).value, true
@@ -31,7 +31,7 @@ func (c *LRUCache) Get(key string) (interface{}, bool) {
 	return nil, false
 }
 
-func (c *LRUCache) Put(key string, value interface{}) {
+func (c *LRUCache) Put(key string, value []byte) {
 	if elem, ok := c.cache[key]; ok {
 		c.list.MoveToFront(elem)
 		elem.Value.(*entry).value = value

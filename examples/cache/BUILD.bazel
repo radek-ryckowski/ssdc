@@ -1,21 +1,18 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_library(
-    name = "server_lib",
+    name = "cache_lib",
     srcs = ["main.go"],
-    importpath = "github.com/radek-ryckowski/ssdc/cmd/server",
+    importpath = "github.com/radek-ryckowski/ssdc/examples/cache",
     visibility = ["//visibility:private"],
     deps = [
         "//cache",
         "//db",
-        "//proto/cache",
-        "//server",
-        "@org_golang_google_grpc//:go_default_library",
     ],
 )
 
 go_binary(
-    name = "server",
-    embed = [":server_lib"],
+    name = "cache",
+    embed = [":cache_lib"],
     visibility = ["//visibility:public"],
 )
