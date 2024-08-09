@@ -8,6 +8,9 @@ go_library(
     deps = [
         "//cache",
         "//proto/cache",
-        "@com_github_prometheus_client_golang//prometheus/promhttp",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promauto",
+        "@org_golang_google_grpc//:go_default_library",
+        "@org_golang_google_protobuf//proto",
     ],
 )
