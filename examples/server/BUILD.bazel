@@ -10,7 +10,10 @@ go_library(
         "//db",
         "//proto/cache",
         "//server",
+        "@com_github_prometheus_client_golang//prometheus/promhttp",
         "@org_golang_google_grpc//:go_default_library",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//keepalive",
     ],
 )
 
