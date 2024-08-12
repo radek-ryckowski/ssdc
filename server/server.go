@@ -2,14 +2,16 @@ package server
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/radek-ryckowski/ssdc/cache"
+	"github.com/radek-ryckowski/ssdc/cluster"
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
-	"google.golang.org/grpc"
+	synclog "github.com/radek-ryckowski/ssdc/sync"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -18,34 +20,19 @@ var (
 		Name: "node_errors_total",
 		Help: "Total number of connection errors hits",
 	})
+
+	slogErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "slog_errors_total",
+		Help: "Total number of sync log errors",
+	})
 )
-
-type CacheClusterClients struct {
-	ServiceClient pb.CacheServiceClient
-	Node          int
-	Address       string
-	Active        bool
-	Conn          *grpc.ClientConn
-	sync.RWMutex
-	Connect func(address string) (*grpc.ClientConn, error)
-}
-
-func (ccc *CacheClusterClients) Init() error {
-	conn, err := ccc.Connect(ccc.Address)
-	ccc.Active = err == nil
-	if err != nil {
-		return err
-	}
-	ccc.Conn = conn
-	ccc.ServiceClient = pb.NewCacheServiceClient(conn)
-	return nil
-}
 
 type Server struct {
 	pb.UnimplementedCacheServiceServer
 	mu    sync.Mutex
 	c     *cache.Cache
-	peers []*CacheClusterClients
+	peers []*cluster.CacheClient
+	slog  *synclog.Updater
 }
 
 func (s *Server) Start() {
@@ -68,11 +55,15 @@ func (s *Server) Start() {
 					err := peer.Init()
 					if err != nil {
 						nodeErrors.Inc() //TODO add peer address to the metric as label
+						peer.Unlock()
+						s.slog.UpdatePeer(peer)
 						continue
 					}
 					peer.Unlock()
 				} else {
 					peer.RUnlock()
+					s.slog.UpdatePeer(peer)
+					s.slog.StartSync()
 				}
 			}
 		}
@@ -105,7 +96,7 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	var wg sync.WaitGroup
 	wg.Add(len(s.peers)) // wait only for quorum number of peers to respond with success
 	for _, peer := range s.peers {
-		go func(peer *CacheClusterClients) {
+		go func(peer *cluster.CacheClient) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			defer wg.Done()
@@ -113,8 +104,13 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 			if err != nil {
 				nodeErrors.Inc() //TODO add peer address to the metric as label
 				peer.Lock()
-				peer.Active = false
+				peer.Active = false // mark the peer as inactive
 				peer.Unlock()
+				err := s.slog.Put([]byte(req.Uuid), value)
+				if err != nil {
+					slogErrors.Inc()
+					log.Printf("Error putting to sync log: %v", err)
+				}
 				return
 			}
 			if resp.Success {
@@ -137,12 +133,15 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 }
 
 // SetPerrs sets the peers for the server
-func (s *Server) SetPeers(peers []*CacheClusterClients) {
+func (s *Server) SetPeers(peers []*cluster.CacheClient) {
 	s.peers = peers
+	for _, peer := range s.peers {
+		s.slog.UpdatePeer(peer)
+	}
 }
 
 // GetPeers returns the peers for the server
-func (s *Server) GetPeers() []*CacheClusterClients {
+func (s *Server) GetPeers() []*cluster.CacheClient {
 	return s.peers
 }
 
@@ -151,7 +150,12 @@ func New(config *cache.CacheConfig) *Server {
 	if c == nil {
 		return nil
 	}
+	slog := synclog.New(config.SlogPath)
+	if slog == nil {
+		return nil
+	}
 	return &Server{
-		c: c,
+		c:    c,
+		slog: slog,
 	}
 }

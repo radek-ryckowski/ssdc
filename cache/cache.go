@@ -64,6 +64,7 @@ type CacheConfig struct {
 	WalPath          string
 	DBStorage        db.DBStorage
 	Logger           Logger
+	SlogPath         string
 }
 
 // Cache struct to hold the channel, a counter, a mutex, a wait group, and a logger
