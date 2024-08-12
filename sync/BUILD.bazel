@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "sync",
+    srcs = ["sync.go"],
+    importpath = "github.com/radek-ryckowski/ssdc/sync",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cluster",
+        "@com_github_lotusdblabs_lotusdb_v2//:go_default_library",
+    ],
+)

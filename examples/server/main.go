@@ -5,11 +5,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/radek-ryckowski/ssdc/cache"
+	"github.com/radek-ryckowski/ssdc/cluster"
 	"github.com/radek-ryckowski/ssdc/db"
 	cacheService "github.com/radek-ryckowski/ssdc/server"
 
@@ -24,6 +26,7 @@ var (
 	httpAddress = flag.String("http", ":8080", "the address to listen on for HTTP requests")
 	peers       = flag.String("peers", "", "comma-separated list of peers")
 	walPath     = flag.String("wal", "/tmp", "the path to the write-ahead log")
+	slogPath    = flag.String("slog", "/tmp/slog", "the path to the sync log directory")
 
 	kaep = keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second, // If a client pings more than once every 5 seconds, terminate the connection
@@ -51,6 +54,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
+	err = os.MkdirAll(*slogPath, 0755)
+	if err != nil {
+		log.Fatalf("failed to create slog directory: %v", err)
+	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	logger := log.New(log.Writer(), "", log.LstdFlags)
 	config := &cache.CacheConfig{
@@ -60,6 +67,7 @@ func main() {
 		WalPath:          *walPath,
 		DBStorage:        db.NewInMemoryDatabase(),
 		Logger:           logger,
+		SlogPath:         *slogPath,
 	}
 	cServer := cacheService.New(config)
 	if cServer == nil {
@@ -71,9 +79,9 @@ func main() {
 	if *peers == "" {
 		log.Fatalf("no peers provided")
 	}
-	peers := make([]*cacheService.CacheClusterClients, 0)
+	peers := make([]*cluster.CacheClient, 0)
 	for node, peer := range peerList {
-		ccc := &cacheService.CacheClusterClients{
+		ccc := &cluster.CacheClient{
 			Address: peer,
 			Active:  true,
 			Connect: func(address string) (*grpc.ClientConn, error) {
