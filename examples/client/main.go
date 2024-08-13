@@ -54,10 +54,12 @@ func main() {
 			Id:    time.Now().UnixNano(),
 			Sum:   sha256Sum,
 		}
+
 		any, err := anypb.New(payload)
 		if err != nil {
 			log.Fatalf("could not create anypb: %v", err)
 		}
+		fmt.Println("debug: ", any)
 		resp, err := c.Set(ctx, &pb.SetRequest{Uuid: *key, Value: any})
 		if err != nil {
 			log.Fatalf("could not set value: %v", err)
@@ -72,8 +74,7 @@ func main() {
 			log.Fatalf("could not get value: %v", err)
 			os.Exit(2)
 		}
-		fmt.Println(resp)
-		// unmashal the anypb
+		fmt.Println("debug: ", resp)
 		payload := &pbData.Payload{}
 		err = resp.Value.UnmarshalTo(payload)
 		if err != nil {
@@ -81,7 +82,7 @@ func main() {
 			os.Exit(2)
 		}
 		if !resp.Found {
-			fmt.Printf("GET Response.Value: not found\n")
+			fmt.Println("GET Response.Value: not found")
 			os.Exit(1)
 		}
 		fmt.Printf("GET Response.Value: %v\n", payload.Value)
