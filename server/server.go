@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log"
+	"math/big"
 	"sync"
 	"time"
 
@@ -13,7 +14,10 @@ import (
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
 	synclog "github.com/radek-ryckowski/ssdc/sync"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
+
+const GetTimeout = 5 * time.Second
 
 var (
 	nodeErrors = promauto.NewCounter(prometheus.CounterOpts{
@@ -104,9 +108,10 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 			if err != nil {
 				nodeErrors.Inc() //TODO add peer address to the metric as label
 				peer.Lock()
+				nodeId := peer.Node
 				peer.Active = false // mark the peer as inactive
 				peer.Unlock()
-				err := s.slog.Put([]byte(req.Uuid), value)
+				err := s.slog.Put([]byte(req.Uuid), big.NewInt(int64(nodeId)).Bytes()) // key need to be unique so uuid + node id
 				if err != nil {
 					slogErrors.Inc()
 					log.Printf("Error putting to sync log: %v", err)
@@ -126,9 +131,65 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	return &pb.SetResponse{Success: true, ConsistentNodes: nodeCount}, nil
 }
 
+func worker(ctx context.Context, peer *cluster.CacheClient, req *pb.GetRequest, ch chan<- []byte) {
+	resp, err := peer.ServiceClient.Get(ctx, req)
+	if err != nil {
+		nodeErrors.Inc() //TODO add peer address to the metric as label
+		peer.Lock()
+		peer.Active = false // mark the peer as inactive
+		peer.Unlock()
+		return
+	}
+	if resp.Value != nil {
+		ch <- resp.Value.Value
+	}
+}
+
+func localWorker(c *cache.Cache, req *pb.GetRequest, ch chan<- []byte) {
+	value, err := c.Get([]byte(req.Uuid))
+	if err != nil {
+		return
+	}
+	if len(value) != 0 {
+		ch <- value
+	}
+}
+
+// Get method to get a value from the cache local and remote it favours found keys against not found keys
 func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	numOfActivePeers := []*cluster.CacheClient{}
+	for _, peer := range s.peers {
+		peer.RLock()
+		if peer.Active {
+			numOfActivePeers = append(numOfActivePeers, peer)
+		}
+		peer.RUnlock()
+	}
+	ch := make(chan []byte, len(numOfActivePeers)+1)
+	cancelFuncs := make([]context.CancelFunc, len(numOfActivePeers))
+	go localWorker(s.c, req, ch)
+	for i, peer := range numOfActivePeers {
+		ctx, cancel := context.WithTimeout(context.Background(), GetTimeout)
+		cancelFuncs[i] = cancel
+		go worker(ctx, peer, req, ch)
+	}
+	select {
+	case val := <-ch:
+		for _, cancel := range cancelFuncs {
+			cancel()
+		}
+		any := &anypb.Any{}
+		err := proto.Unmarshal(val, any)
+		if err != nil {
+			return &pb.GetResponse{}, err
+		}
+		return &pb.GetResponse{Value: any}, nil
+	case <-time.After(GetTimeout):
+		// cancel all contexts
+		for _, cancel := range cancelFuncs {
+			cancel()
+		}
+	}
 	return &pb.GetResponse{}, nil
 }
 
@@ -154,6 +215,7 @@ func New(config *cache.CacheConfig) *Server {
 	if slog == nil {
 		return nil
 	}
+	slog.GetKeyCall = c.Get
 	return &Server{
 		c:    c,
 		slog: slog,

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	pbData "github.com/radek-ryckowski/ssdc/examples/proto/data"
@@ -20,6 +21,8 @@ var (
 	address = flag.String("address", "127.0.0.1:50051", "the address to connect to")
 	key     = flag.String("key", "exampleKey", "the key to set")
 	value   = flag.String("value", "exampleValue", "the value to set")
+	getFlg  = flag.Bool("get", false, "get operation")
+	setFlg  = flag.Bool("set", false, "set operation")
 
 	kacp = keepalive.ClientParameters{
 		Time:                10 * time.Second, // send pings every 10 seconds if there is no activity
@@ -40,24 +43,48 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	sha256 := sha256.New()
-	sha256.Write([]byte(*key))
-	sha256.Write([]byte(*value))
-	sha256Sum := fmt.Sprintf("%x", sha256.Sum(nil))
+	if *setFlg {
+		sha256 := sha256.New()
+		sha256.Write([]byte(*key))
+		sha256.Write([]byte(*value))
+		sha256Sum := fmt.Sprintf("%x", sha256.Sum(nil))
 
-	payload := &pbData.Payload{
-		Value: "exampleValue",
-		Id:    time.Now().UnixNano(),
-		Sum:   sha256Sum,
+		payload := &pbData.Payload{
+			Value: *value,
+			Id:    time.Now().UnixNano(),
+			Sum:   sha256Sum,
+		}
+		any, err := anypb.New(payload)
+		if err != nil {
+			log.Fatalf("could not create anypb: %v", err)
+		}
+		resp, err := c.Set(ctx, &pb.SetRequest{Uuid: *key, Value: any})
+		if err != nil {
+			log.Fatalf("could not set value: %v", err)
+		}
+		fmt.Printf("Response.Nodes: %v\n", resp.ConsistentNodes)
+		fmt.Printf("Response.Succes: %v\n", resp.Success)
+		os.Exit(1)
 	}
-	any, err := anypb.New(payload)
-	if err != nil {
-		log.Fatalf("could not create anypb: %v", err)
+	if *getFlg {
+		resp, err := c.Get(ctx, &pb.GetRequest{Uuid: *key})
+		if err != nil {
+			log.Fatalf("could not get value: %v", err)
+			os.Exit(2)
+		}
+		fmt.Println(resp)
+		// unmashal the anypb
+		payload := &pbData.Payload{}
+		err = resp.Value.UnmarshalTo(payload)
+		if err != nil {
+			log.Fatalf("could not unmarshal anypb: %v", err)
+			os.Exit(2)
+		}
+		if !resp.Found {
+			fmt.Printf("GET Response.Value: not found\n")
+			os.Exit(1)
+		}
+		fmt.Printf("GET Response.Value: %v\n", payload.Value)
+		os.Exit(0)
 	}
-	resp, err := c.Set(ctx, &pb.SetRequest{Uuid: "exampleKey", Value: any})
-	if err != nil {
-		log.Fatalf("could not set value: %v", err)
-	}
-	fmt.Printf("Response.Nodes: %v\n", resp.ConsistentNodes)
-	fmt.Printf("Response.Succes: %v\n", resp.Success)
 }
