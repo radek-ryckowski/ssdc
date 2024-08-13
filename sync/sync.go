@@ -2,6 +2,7 @@ package sync
 
 import (
 	"log"
+	"math/big"
 	"sync"
 	"time"
 
@@ -17,11 +18,12 @@ type Node struct {
 
 type Updater struct {
 	Path         string // Path to updater database
-	Db           *lotusdb.DB
+	db           *lotusdb.DB
 	mx           sync.RWMutex
 	startSyncing chan bool
 	StopTicker   chan bool
-	cacheClients []*cluster.CacheClient
+	cacheClients map[int]*cluster.CacheClient
+	GetKeyCall   func(key []byte) ([]byte, error)
 }
 
 func New(path string) *Updater {
@@ -34,8 +36,9 @@ func New(path string) *Updater {
 	}
 	return &Updater{
 		Path:         path,
-		Db:           db,
+		db:           db,
 		startSyncing: make(chan bool, 1024),
+		cacheClients: make(map[int]*cluster.CacheClient),
 	}
 }
 
@@ -49,7 +52,7 @@ func (u *Updater) Start() {
 				// Start syncing logic here
 			case <-u.StopTicker:
 				ticker.Stop()
-				u.Db.Close()
+				u.db.Close()
 				return
 			default:
 				// Do nothing
@@ -67,31 +70,48 @@ func (u *Updater) StartSync() {
 	u.startSyncing <- true
 }
 
-// update node in Cache clients
 func (u *Updater) UpdatePeer(node *cluster.CacheClient) {
-	found := false
-	for _, client := range u.cacheClients {
-		client.Lock()
-		if client.Node == node.Node {
-			found = true
-			client.Address = node.Address
-			client.Active = node.Active
-		}
-		client.Unlock()
-	}
-	if !found {
-		u.cacheClients = append(u.cacheClients, node)
-	}
+	u.mx.Lock()
+	defer u.mx.Unlock()
+	u.cacheClients[node.Node] = node
 }
 
-func (u *Updater) Get(key []byte) ([]byte, error) {
-	u.mx.RLock()
-	defer u.mx.RUnlock()
-	return u.Db.Get(key)
+// WalkAndSend method to walk through the database and send the data to the peers
+func (u *Updater) WalkAndSend() {
+	// Walk through the database
+	iter, err := u.db.NewIterator(lotusdb.IteratorOptions{Reverse: false})
+	if err != nil {
+		panic(err)
+	}
+	for iter.Valid() {
+		//uuid = iter.Key()
+		nodeID := int(big.NewInt(0).SetBytes(iter.Value()).Int64())
+		node := u.cacheClients[nodeID]
+		if node != nil {
+			node.RLock()
+			if !node.Active {
+				node.RUnlock()
+				continue
+			}
+			node.RUnlock()
+			_, error := u.GetKeyCall(iter.Key())
+			if error != nil {
+				log.Printf("sync error getting key: %v", error)
+			}
+			// Send the data to the peer
+			//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			//resp, err := peer.ServiceClient.Set(ctx, &pb.SetRequest{Uuid: req.Uuid, Value: req.Value, Local: true})
+			// Send the data to the peer
+			// node.SendData(uuid, iter.Value())
+		}
+
+		iter.Next()
+	}
+
 }
 
 func (u *Updater) Put(key, value []byte) error {
 	u.mx.Lock()
 	defer u.mx.Unlock()
-	return u.Db.Put(key, value)
+	return u.db.Put(key, value)
 }
