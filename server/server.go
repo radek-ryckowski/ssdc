@@ -183,7 +183,7 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		if err != nil {
 			return &pb.GetResponse{}, err
 		}
-		return &pb.GetResponse{Value: any}, nil
+		return &pb.GetResponse{Value: any, Found: true}, nil
 	case <-time.After(GetTimeout):
 		// cancel all contexts
 		for _, cancel := range cancelFuncs {
