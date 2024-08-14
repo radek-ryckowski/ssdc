@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"log"
 	"math/big"
 	"sync"
@@ -8,6 +9,9 @@ import (
 
 	"github.com/lotusdblabs/lotusdb/v2"
 	"github.com/radek-ryckowski/ssdc/cluster"
+	pb "github.com/radek-ryckowski/ssdc/proto/cache"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 // Node struct to store key and nodeID
@@ -84,7 +88,8 @@ func (u *Updater) WalkAndSend() {
 		panic(err)
 	}
 	for iter.Valid() {
-		//uuid = iter.Key()
+		// remove last 4 bytesfrom the key (random sufix)
+		uuid := iter.Key()[:len(iter.Key())-4]
 		nodeID := int(big.NewInt(0).SetBytes(iter.Value()).Int64())
 		node := u.cacheClients[nodeID]
 		if node != nil {
@@ -94,15 +99,29 @@ func (u *Updater) WalkAndSend() {
 				continue
 			}
 			node.RUnlock()
-			_, error := u.GetKeyCall(iter.Key())
+			value, error := u.GetKeyCall(iter.Key())
 			if error != nil {
 				log.Printf("sync error getting key: %v", error)
+				continue
 			}
 			// Send the data to the peer
-			//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			//resp, err := peer.ServiceClient.Set(ctx, &pb.SetRequest{Uuid: req.Uuid, Value: req.Value, Local: true})
-			// Send the data to the peer
-			// node.SendData(uuid, iter.Value())
+			any := &anypb.Any{}
+			err := proto.Unmarshal(value, any)
+			if err != nil {
+				log.Printf("sync error unmarshaling data: %v", err)
+				continue
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ret, err := node.ServiceClient.Set(ctx, &pb.SetRequest{Uuid: string(uuid), Value: any, Local: true})
+			cancel()
+			if err != nil || !ret.Success {
+				log.Printf("sync error sending data to peer: %v", err)
+				continue
+			}
+			// delete from db
+			u.mx.Lock()
+			u.db.Delete(uuid)
+			u.mx.Unlock()
 		}
 
 		iter.Next()

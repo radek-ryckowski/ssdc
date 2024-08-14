@@ -1,8 +1,8 @@
 package cache
 
 import (
-	"encoding/gob"
 	"fmt"
+	"io"
 
 	"os"
 	"path"
@@ -12,6 +12,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/radek-ryckowski/ssdc/db"
+	pb "github.com/radek-ryckowski/ssdc/proto/cache"
+	"github.com/rosedblabs/wal"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -51,20 +54,16 @@ type Logger interface {
 	Println(v ...interface{})
 }
 
-// KeyValue struct to hold key-value pairs
-type KeyValue struct {
-	Key   string
-	Value []byte
-}
-
 type CacheConfig struct {
-	CacheSize        int
-	RoCacheSize      int
-	MaxSizeOfChannel int
-	WalPath          string
-	DBStorage        db.DBStorage
-	Logger           Logger
-	SlogPath         string
+	CacheSize         int
+	RoCacheSize       int
+	MaxSizeOfChannel  int
+	WalPath           string
+	DBStorage         db.DBStorage
+	Logger            Logger
+	SlogPath          string
+	WalSegmentSize    int64
+	WalMaxWithoutSync uint32
 }
 
 // Cache struct to hold the channel, a counter, a mutex, a wait group, and a logger
@@ -73,17 +72,25 @@ type Cache struct {
 	counter    int
 	mu         sync.Mutex
 	store      map[string][]byte
-	walFile    *os.File
+	wal        *wal.WAL
 	cacheSize  int
 	walPath    string
-	encoder    *gob.Encoder
 	dbStorage  db.DBStorage
 	logger     Logger
 	roCache    *LRUCache
+	walOptions wal.Options
 }
 
 // NewCache creates a new Cache instance with a logger
 func NewCache(config *CacheConfig) *Cache {
+	walFullPath := path.Join(config.WalPath, WalName)
+	walOptions := wal.Options{
+		DirPath:        walFullPath,
+		SegmentSize:    config.WalSegmentSize,
+		SegmentFileExt: ".WSG",
+		Sync:           true,
+		BytesPerSync:   config.WalMaxWithoutSync,
+	}
 	cache := &Cache{
 		signalChan: make(chan int64, config.MaxSizeOfChannel),
 		store:      make(map[string][]byte),
@@ -92,31 +99,15 @@ func NewCache(config *CacheConfig) *Cache {
 		dbStorage:  config.DBStorage,
 		logger:     config.Logger,
 		roCache:    NewLRUCache(config.RoCacheSize),
+		walOptions: walOptions,
 	}
-	walFilePath := path.Join(config.WalPath, WalName)
-	if _, err := os.Stat(walFilePath); os.IsNotExist(err) {
-		walFile, err := os.Create(walFilePath)
-		if err != nil {
-			walErrors.Inc()
-			cache.logger.Println("Error creating WAL file:", err)
-			return nil
-		}
-		cache.walFile = walFile
-	} else {
-		walFile, err := os.OpenFile(walFilePath, os.O_RDWR, 0644)
-		if err != nil {
-			walErrors.Inc()
-			cache.logger.Println("Error opening WAL file:", err)
-			return nil
-		}
-		cache.walFile = walFile
-		if err := cache.Recovery(); err != nil {
-			walErrors.Inc()
-			cache.logger.Println("Error recovering from WAL file:", err)
-			return nil
-		}
+	wal, err := wal.Open(wal.DefaultOptions)
+	if err != nil {
+		walErrors.Inc()
+		cache.logger.Println("Error creating WAL file:", err)
+		return nil
 	}
-	cache.encoder = gob.NewEncoder(cache.walFile)
+	cache.wal = wal
 	return cache
 }
 
@@ -124,27 +115,36 @@ func NewCache(config *CacheConfig) *Cache {
 func (c *Cache) Store(key, value []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	err := c.encoder.Encode(KeyValue{Key: string(key), Value: value})
+	kv := &pb.KeyValue{
+		Key:   key,
+		Value: value,
+	}
+	data, err := proto.Marshal(kv)
 	if err != nil {
+		return err
+	}
+	if _, err := c.wal.Write(data); err != nil {
 		return err
 	}
 	c.store[string(key)] = value
 	c.counter++
 
 	if c.counter >= c.cacheSize {
-		c.walFile.Close()
+		c.wal.Sync()
+		if err := c.wal.Close(); err != nil {
+			return err
+		}
 		timestamp := time.Now().UnixNano()
 		walPath := path.Join(c.walPath, WalName)
 		oldWalPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, timestamp))
 		if err := os.Rename(walPath, oldWalPath); err != nil {
 			return err
 		}
-		walFile, err := os.Create(walPath)
+		wal, err := wal.Open(c.walOptions)
 		if err != nil {
 			return err
 		}
-		c.walFile = walFile
-		c.encoder = gob.NewEncoder(c.walFile)
+		c.wal = wal
 		c.signalChan <- int64(timestamp)
 		c.counter = 0
 	}
@@ -155,20 +155,28 @@ func (c *Cache) Store(key, value []byte) error {
 func (c *Cache) WaitForSignal() {
 	for signal := range c.signalChan {
 		walPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, signal))
-		walFile, err := os.OpenFile(walPath, os.O_RDWR, 0644)
+		options := c.walOptions
+		options.DirPath = walPath
+		wal, err := wal.Open(options)
 		if err != nil {
 			walErrors.Inc()
 			c.logger.Println("Error opening WAL file:", err)
 			continue
 		}
 		pushToDb := make(map[string][]byte)
-		decoder := gob.NewDecoder(walFile)
+		reader := wal.NewReader()
 		for {
-			var kv KeyValue
-			if err := decoder.Decode(&kv); err != nil {
+			kv := &pb.KeyValue{}
+			data, _, err := reader.Next()
+			if err == io.EOF {
 				break
 			}
-			pushToDb[kv.Key] = kv.Value
+			if err := proto.Unmarshal(data, kv); err != nil {
+				walErrors.Inc()
+				c.logger.Println("Error unmarshalling data:", err)
+				continue
+			}
+			pushToDb[string(kv.Key)] = kv.Value
 		}
 		succeded := false
 		if err := c.dbStorage.Push(pushToDb); err != nil {
@@ -177,13 +185,14 @@ func (c *Cache) WaitForSignal() {
 		} else {
 			succeded = true
 		}
-		walFile.Close()
+		wal.Close()
 		if succeded {
 			c.mu.Lock()
 			for k := range pushToDb {
 				delete(c.store, k)
 			}
-			if err := os.Remove(walPath); err != nil {
+
+			if err := wal.Delete(); err != nil {
 				walErrors.Inc()
 				c.logger.Println("Error removing WAL file:", err)
 			} else {
@@ -223,18 +232,4 @@ func (c *Cache) Get(key []byte) ([]byte, error) {
 // CloseSignalChannel method to close the signal channel
 func (c *Cache) CloseSignalChannel() {
 	close(c.signalChan)
-}
-
-// Recovery method to read the WAL file and populate the store map
-func (c *Cache) Recovery() error {
-	decoder := gob.NewDecoder(c.walFile)
-	for {
-		var kv KeyValue
-		if err := decoder.Decode(&kv); err != nil {
-			break
-		}
-		c.store[kv.Key] = kv.Value
-		c.counter++
-	}
-	return nil
 }
