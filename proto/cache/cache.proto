@@ -29,3 +29,8 @@ message GetResponse {
   google.protobuf.Any value = 1;
   bool found = 2;
 }
+
+message KeyValue {
+  bytes key = 1;
+  bytes value = 2;
+}

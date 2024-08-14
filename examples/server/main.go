@@ -61,13 +61,15 @@ func main() {
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	logger := log.New(log.Writer(), "", log.LstdFlags)
 	config := &cache.CacheConfig{
-		CacheSize:        10,
-		RoCacheSize:      65536,
-		MaxSizeOfChannel: 8192,
-		WalPath:          *walPath,
-		DBStorage:        db.NewInMemoryDatabase(),
-		Logger:           logger,
-		SlogPath:         *slogPath,
+		CacheSize:         10,
+		RoCacheSize:       65536,
+		MaxSizeOfChannel:  8192,
+		WalPath:           *walPath,
+		DBStorage:         db.NewInMemoryDatabase(),
+		Logger:            logger,
+		SlogPath:          *slogPath,
+		WalSegmentSize:    1024 * 1024 * 10,
+		WalMaxWithoutSync: 4096,
 	}
 	cServer := cacheService.New(config)
 	if cServer == nil {

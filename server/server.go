@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"log"
 	"math/big"
 	"sync"
@@ -111,7 +112,15 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 				nodeId := peer.Node
 				peer.Active = false // mark the peer as inactive
 				peer.Unlock()
-				err := s.slog.Put([]byte(req.Uuid), big.NewInt(int64(nodeId)).Bytes()) // key need to be unique so uuid + node id
+				// key = req.Uuid + random 4 bytes
+				// generate random 4 bytes
+				randomPart := make([]byte, 4)
+				_, err := rand.Read(randomPart)
+				if err != nil {
+					log.Printf("Error generating random key: %v", err)
+					return
+				}
+				err = s.slog.Put(append([]byte(req.Uuid), randomPart...), big.NewInt(int64(nodeId)).Bytes())
 				if err != nil {
 					slogErrors.Inc()
 					log.Printf("Error putting to sync log: %v", err)
