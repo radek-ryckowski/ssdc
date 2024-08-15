@@ -12,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/radek-ryckowski/ssdc/cache"
 	"github.com/radek-ryckowski/ssdc/cluster"
-	"github.com/radek-ryckowski/ssdc/db"
+	memdb "github.com/radek-ryckowski/ssdc/examples/db"
 	cacheService "github.com/radek-ryckowski/ssdc/server"
 
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
@@ -65,7 +65,7 @@ func main() {
 		RoCacheSize:       65536,
 		MaxSizeOfChannel:  8192,
 		WalPath:           *walPath,
-		DBStorage:         db.NewInMemoryDatabase(),
+		DBStorage:         memdb.NewInMemoryDatabase(),
 		Logger:            logger,
 		SlogPath:          *slogPath,
 		WalSegmentSize:    1024 * 1024 * 10,

@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"github.com/radek-ryckowski/ssdc/cache"
-	"github.com/radek-ryckowski/ssdc/db"
+	"github.com/radek-ryckowski/ssdc/examples/db"
 )
 
 // Example usage
