@@ -8,7 +8,7 @@ go_library(
     deps = [
         "//cache",
         "//cluster",
-        "//db",
+        "//examples/db",
         "//proto/cache",
         "//server",
         "@com_github_prometheus_client_golang//prometheus/promhttp",

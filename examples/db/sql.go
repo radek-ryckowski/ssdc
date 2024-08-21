@@ -3,11 +3,20 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"runtime"
 
 	_ "github.com/mattn/go-sqlite3"
-	pb "github.com/radek-ryckowski/ssdc/example/proto/data"
+	pb "github.com/radek-ryckowski/ssdc/examples/proto/data"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
+
+// annotateError annotates the given error with file name and line number
+func annotateError(err error) error {
+	_, file, line, _ := runtime.Caller(1)
+	return fmt.Errorf("%s:%d - %w", file, line, err)
+}
 
 // DBStorage struct to interact with SQLite database
 type SQLDBStorage struct {
@@ -18,7 +27,7 @@ type SQLDBStorage struct {
 func NewSQLDBStorage(dataSourceName string) (*SQLDBStorage, error) {
 	db, err := sql.Open("sqlite3", dataSourceName)
 	if err != nil {
-		return nil, err
+		return nil, annotateError(err)
 	}
 	// Create table if not exists
 	createTableQuery := `
@@ -30,7 +39,7 @@ func NewSQLDBStorage(dataSourceName string) (*SQLDBStorage, error) {
 	);`
 	_, err = db.Exec(createTableQuery)
 	if err != nil {
-		return nil, err
+		return nil, annotateError(err)
 	}
 
 	return &SQLDBStorage{db: db}, nil
@@ -40,17 +49,22 @@ func NewSQLDBStorage(dataSourceName string) (*SQLDBStorage, error) {
 func (s *SQLDBStorage) Push(batch map[string][]byte) error {
 	dbData := make(map[string]*pb.Payload)
 	for k, v := range batch {
+		anyEntry := anypb.Any{}
+		if err := proto.Unmarshal(v, &anyEntry); err != nil {
+			return annotateError(err)
+		}
 		data := &pb.Payload{}
-		err := proto.Unmarshal(v, data)
+		fmt.Println(string(v))
+		err := anyEntry.UnmarshalTo(data)
 		if err != nil {
-			return err
+			return annotateError(err)
 		}
 		dbData[k] = data
 	}
 	// check and remove all keys which already exist in the database
 	tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return err
+		return annotateError(err)
 	}
 	for k := range dbData {
 		selectQuery := `SELECT uuid FROM nodes WHERE uuid = ?`
@@ -66,24 +80,24 @@ func (s *SQLDBStorage) Push(batch map[string][]byte) error {
 	}
 	err = tx.Commit()
 	if err != nil {
-		return err
+		return annotateError(err)
 	}
 
 	tx, err = s.db.Begin()
 	if err != nil {
-		return err
+		return annotateError(err)
 	}
 	insertQuery := `INSERT INTO nodes (uuid, value, sum, id) VALUES (?, ?, ?, ?)`
 	stmt, err := tx.Prepare(insertQuery)
 	if err != nil {
-		return err
+		return annotateError(err)
 	}
 	defer stmt.Close()
 	for k, v := range dbData {
 		_, err = stmt.Exec(k, v.Value, v.Sum, v.Id)
 		if err != nil {
 			tx.Rollback()
-			return err
+			return annotateError(err)
 		}
 	}
 	return tx.Commit()
@@ -94,14 +108,18 @@ func (s *SQLDBStorage) Get(key string) ([]byte, error) {
 	var id int64
 	err := s.db.QueryRow(selectQuery, key).Scan(&value, &sum, &id)
 	if err != nil {
-		return nil, err
+		return nil, annotateError(err)
 	}
 	data := &pb.Payload{
 		Value: value,
 		Sum:   sum,
 		Id:    id,
 	}
-	return proto.Marshal(data)
+	buffer, err := proto.Marshal(data)
+	if err != nil {
+		return nil, annotateError(err)
+	}
+	return buffer, nil
 }
 
 // Close closes the database connection

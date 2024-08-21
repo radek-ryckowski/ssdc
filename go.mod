@@ -5,6 +5,7 @@ go 1.21
 require (
 	github.com/golang/protobuf v1.5.4
 	github.com/lotusdblabs/lotusdb/v2 v2.1.0
+	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/prometheus/client_golang v1.19.1
 	github.com/rosedblabs/wal v1.3.6
 	google.golang.org/grpc v1.65.0

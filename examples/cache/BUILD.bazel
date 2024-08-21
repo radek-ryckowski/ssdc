@@ -7,7 +7,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//cache",
-        "//db",
+        "//examples/db",
     ],
 )
 
