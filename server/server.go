@@ -14,6 +14,8 @@ import (
 	"github.com/radek-ryckowski/ssdc/cluster"
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
 	synclog "github.com/radek-ryckowski/ssdc/sync"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -142,7 +144,7 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	return &pb.SetResponse{Success: true, ConsistentNodes: nodeCount}, nil
 }
 
-func worker(ctx context.Context, peer *cluster.CacheClient, req *pb.GetRequest, ch chan<- []byte) {
+func worker(ctx context.Context, peer *cluster.CacheClient, req *pb.GetRequest, ch chan<- []byte, chNotFound chan<- bool) {
 	resp, err := peer.ServiceClient.Get(ctx, req)
 	if err != nil {
 		nodeErrors.Inc() //TODO add peer address to the metric as label
@@ -151,23 +153,68 @@ func worker(ctx context.Context, peer *cluster.CacheClient, req *pb.GetRequest, 
 		peer.Unlock()
 		return
 	}
+	if !resp.Found {
+		chNotFound <- true
+		return
+	}
 	if resp.Value != nil {
-		ch <- resp.Value.Value
+		buf, err := proto.Marshal(resp.Value)
+		if err != nil {
+			return
+		}
+		if len(buf) != 0 {
+			ch <- buf
+		}
 	}
 }
 
-func localWorker(c *cache.Cache, req *pb.GetRequest, ch chan<- []byte) {
+func localWorker(c *cache.Cache, req *pb.GetRequest, ch chan<- []byte, chNotFound chan<- bool) {
 	value, err := c.Get([]byte(req.Uuid))
 	if err != nil {
-		return
+		if s, ok := status.FromError(err); ok {
+			switch s.Code() {
+			case codes.NotFound:
+				chNotFound <- true
+			default:
+				return
+			}
+		}
 	}
 	if len(value) != 0 {
 		ch <- value
 	}
+	chNotFound <- true
+}
+
+func (s *Server) getLocal(key []byte) (*pb.GetResponse, error) {
+	value, err := s.c.Get(key)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			switch s.Code() {
+			case codes.NotFound:
+				return &pb.GetResponse{}, nil
+			default:
+				return &pb.GetResponse{}, s.Err()
+			}
+		}
+		return &pb.GetResponse{}, err
+	}
+	if len(value) != 0 {
+		any := &anypb.Any{}
+		err := proto.Unmarshal(value, any)
+		if err != nil {
+			return &pb.GetResponse{}, err
+		}
+		return &pb.GetResponse{Value: any, Found: true}, nil
+	}
+	return &pb.GetResponse{}, nil
 }
 
 // Get method to get a value from the cache local and remote it favours found keys against not found keys
 func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	if req.Local {
+		return s.getLocal([]byte(req.Uuid))
+	}
 	numOfActivePeers := []*cluster.CacheClient{}
 	for _, peer := range s.peers {
 		peer.RLock()
@@ -177,31 +224,41 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		peer.RUnlock()
 	}
 	ch := make(chan []byte, len(numOfActivePeers)+1)
+	chNotFound := make(chan bool, len(numOfActivePeers)+1)
+	AllNotFound := len(numOfActivePeers) + 1
 	cancelFuncs := make([]context.CancelFunc, len(numOfActivePeers))
-	go localWorker(s.c, req, ch)
+	go localWorker(s.c, req, ch, chNotFound)
+	req.Local = true
 	for i, peer := range numOfActivePeers {
 		ctx, cancel := context.WithTimeout(context.Background(), GetTimeout)
 		cancelFuncs[i] = cancel
-		go worker(ctx, peer, req, ch)
+		go worker(ctx, peer, req, ch, chNotFound)
 	}
-	select {
-	case val := <-ch:
-		for _, cancel := range cancelFuncs {
-			cancel()
-		}
-		any := &anypb.Any{}
-		err := proto.Unmarshal(val, any)
-		if err != nil {
-			return &pb.GetResponse{}, err
-		}
-		return &pb.GetResponse{Value: any, Found: true}, nil
-	case <-time.After(GetTimeout):
-		// cancel all contexts
-		for _, cancel := range cancelFuncs {
-			cancel()
+	for {
+		select {
+		case val := <-ch:
+			for _, cancel := range cancelFuncs {
+				cancel()
+			}
+			any := &anypb.Any{}
+			err := proto.Unmarshal(val, any)
+			if err != nil {
+				return &pb.GetResponse{}, err
+			}
+			return &pb.GetResponse{Value: any, Found: true}, nil
+		case <-chNotFound:
+			AllNotFound--
+			if AllNotFound == 0 {
+				return &pb.GetResponse{}, nil
+			}
+		case <-time.After(GetTimeout):
+			// cancel all contexts
+			for _, cancel := range cancelFuncs {
+				cancel()
+			}
+			return &pb.GetResponse{}, nil
 		}
 	}
-	return &pb.GetResponse{}, nil
 }
 
 // SetPerrs sets the peers for the server
