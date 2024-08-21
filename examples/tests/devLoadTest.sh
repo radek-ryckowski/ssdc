@@ -34,9 +34,10 @@ do
         key="key$a"
         server=$(printf "%s\n" "${array[@]}" | shuf -n 1)
         ./client -key=$key -address=$server -get
-        if [ $? != 0 ]
+	ret=$?
+        if [ $ret != 0 ]
         then
-                echo "Error: $?"
+                echo "Error: $ret"
         fi
         a=$((a+1))
         if [ $a -eq $breakNumber ]
@@ -44,5 +45,14 @@ do
                 break
         fi
 done
+
+key="NonExistingKey"
+server=$(printf "%s\n" "${array[@]}" | shuf -n 1)
+./client -key=$key -address=$server -get
+ret=$?
+if [ $ret != 1 ]
+then
+    echo "Error: $ret"
+fi
 
 ps -efa | grep server | grep wal |grep -v grep | awk '{print $2}'| xargs kill -9

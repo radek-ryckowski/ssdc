@@ -108,6 +108,9 @@ func (s *SQLDBStorage) Get(key string) ([]byte, error) {
 	var id int64
 	err := s.db.QueryRow(selectQuery, key).Scan(&value, &sum, &id)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, annotateError(err)
 	}
 	data := &pb.Payload{

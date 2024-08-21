@@ -1,0 +1,177 @@
+commit 6773da14bed93ee701461f49f3aead6ba03b1fb2
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 21 16:48:21 2024 +0100
+
+    fast Not Found, GET optimzation
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit effd70c525178e43744188115c7131ab1cfb1e3a
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 21 13:27:46 2024 +0100
+
+    Time based WAL sync
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 58666e7d3bdb66ceda6b09931ccc00d62bf7015f
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 21 12:52:52 2024 +0100
+
+    Add ability to specify quorum
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit cb4815442291608d046b94759d4c04f9824b86a3
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 21 12:48:05 2024 +0100
+
+    proper marshalling, storing batch of []*KeyValues instead map[string][]byte
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 8e8b9e02f9e9969e65774d051c846fa6827f4cab
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 21 12:09:48 2024 +0100
+
+    example server implementation based on SQLite
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit f3ad21ae7c0066388b9594b8c6a8be3d709f1c77
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Thu Aug 15 07:38:29 2024 +0100
+
+    sample sql backend implementation
+
+commit 2ad3c4591355b11c78620321beeb836dacc0473a
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 14 11:26:21 2024 +0100
+
+    Change WAL implementation, improvements to sync
+
+commit 20e11902f308daa53f14ff05a98ebf8824b80270
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Tue Aug 13 13:37:11 2024 +0100
+
+    test fixes
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 16b85d336531fb337e6f0d8c6c472ee12ba9ed44
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Tue Aug 13 13:19:41 2024 +0100
+
+    rudimentary cluster get
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 74e518755f6a2b1943f8734711b0f476bf2d211d
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Mon Aug 12 13:50:04 2024 +0100
+
+    Sync (slow) log implemented
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 234940b28e90b42c9789c118729684089c41030b
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Fri Aug 9 12:55:07 2024 +0100
+
+    bazel update
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit be94469d2954053a2fbc83a2af384446e64dff8c
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 21:42:29 2024 +0100
+
+    implemented reconnection functionality
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit a8a4b570e9595ef4d4ed96473b704f4bef726288
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 21:10:58 2024 +0100
+
+    CacheClusterClients added
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit e2c9cc993ed4069f847eef4db3ad50b6b63bd756
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 20:57:08 2024 +0100
+
+    client / server fixes
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 159c063c1adfe16aca5cbf0447406fd8437cb350
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 20:32:09 2024 +0100
+
+    basic client, improved Set
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit e34d18b6720cf6e59ff1c1894aceed111b43f3fc
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 15:06:21 2024 +0100
+
+    add prometheus metrics
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 5e820a416de51386b5a30d77ff9f42afa2f7db54
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 14:52:28 2024 +0100
+
+    move cmd to examples, rudamentary local Get
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 8d8dc99ee7b928f51fb706488067e96846186274
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 14:30:44 2024 +0100
+
+    server cache prometheus instrumentation , bug fixes
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 735faed35a5b8540525bc01ab1f94a784b1d5ee3
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 12:21:08 2024 +0100
+
+    More server fixes
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 30a87ef7607b6ef0192318de32a5762a34b8ddaf
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 11:36:45 2024 +0100
+
+    Fix build changes for server
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 8d112d6c521df84f697dbbea98e3016fa20193ff
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Wed Aug 7 11:20:28 2024 +0100
+
+    small change to server
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 7fb12737b52010bebde412c57a6b75c97932e61c
+Author: Radek Ryckowski <radek.ryckowski@gmail.com>
+Date:   Tue Aug 6 21:24:08 2024 +0100
+
+    local cache implementation
+    
+    Signed-off-by: Radek Ryckowski <radek.ryckowski@gmail.com>
+
+commit 2aa4059ae6fc80380e28b75c777f9f527c9da6e8
+Author: Radoslaw Ryckowski <radoslaw.ryckowski@ln.email.gs.com>
+Date:   Tue Aug 6 19:00:22 2024 +0100
+
+    Initial commit

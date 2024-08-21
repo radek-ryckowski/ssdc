@@ -14,6 +14,8 @@ import (
 	"github.com/radek-ryckowski/ssdc/db"
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
 	"github.com/rosedblabs/wal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -129,16 +131,19 @@ func (c *Cache) Tick() {
 func (c *Cache) SyncWAL() error {
 	c.wal.Sync()
 	if err := c.wal.Close(); err != nil {
+		walErrors.Inc()
 		return err
 	}
 	timestamp := time.Now().UnixNano()
 	walPath := path.Join(c.walPath, WalName)
 	oldWalPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, timestamp))
 	if err := os.Rename(walPath, oldWalPath); err != nil {
+		walErrors.Inc()
 		return err
 	}
 	wal, err := wal.Open(c.walOptions)
 	if err != nil {
+		walErrors.Inc()
 		return err
 	}
 	c.wal = wal
@@ -157,17 +162,17 @@ func (c *Cache) Store(key, value []byte) error {
 	}
 	data, err := proto.Marshal(kv)
 	if err != nil {
-		return err
+		return status.Error(codes.Internal, err.Error())
 	}
 	if _, err := c.wal.Write(data); err != nil {
-		return err
+		return status.Error(codes.Internal, err.Error())
 	}
 	c.store[string(key)] = value
 	c.counter++
 
 	if c.counter >= c.cacheSize {
 		if err := c.SyncWAL(); err != nil {
-			return err
+			return status.Error(codes.Internal, err.Error())
 		}
 	}
 	return nil
@@ -243,11 +248,11 @@ func (c *Cache) Get(key []byte) ([]byte, error) {
 		dbErrors.Inc()
 		return nil, err
 	}
-	c.roCache.Put(string(key), value)
-	if value != nil {
+	if value != nil || len(value) != 0 {
+		c.roCache.Put(string(key), value)
 		return value, nil
 	}
-	return nil, fmt.Errorf("key not found")
+	return nil, status.Error(codes.NotFound, "not found")
 }
 
 // CloseSignalChannel method to close the signal channel
