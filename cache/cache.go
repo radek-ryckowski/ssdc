@@ -101,7 +101,7 @@ func NewCache(config *CacheConfig) *Cache {
 		roCache:    NewLRUCache(config.RoCacheSize),
 		walOptions: walOptions,
 	}
-	wal, err := wal.Open(wal.DefaultOptions)
+	wal, err := wal.Open(walOptions)
 	if err != nil {
 		walErrors.Inc()
 		cache.logger.Println("Error creating WAL file:", err)
