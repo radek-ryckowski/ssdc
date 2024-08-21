@@ -2,10 +2,8 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "db",
-    srcs = [
-        "db.go",
-        "memdb.go",
-    ],
+    srcs = ["db.go"],
     importpath = "github.com/radek-ryckowski/ssdc/db",
     visibility = ["//visibility:public"],
+    deps = ["//proto/cache"],
 )

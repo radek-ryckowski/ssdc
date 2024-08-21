@@ -12,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/radek-ryckowski/ssdc/cache"
 	"github.com/radek-ryckowski/ssdc/cluster"
-	"github.com/radek-ryckowski/ssdc/db"
+	"github.com/radek-ryckowski/ssdc/examples/db"
 	cacheService "github.com/radek-ryckowski/ssdc/server"
 
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
@@ -27,6 +27,8 @@ var (
 	peers       = flag.String("peers", "", "comma-separated list of peers")
 	walPath     = flag.String("wal", "/tmp", "the path to the write-ahead log")
 	slogPath    = flag.String("slog", "/tmp/slog", "the path to the sync log directory")
+	dbPath      = flag.String("db", "/tmp/test.db", "the path to the SQLite database")
+	syncDelay   = flag.Int("sync", 1800, "maximum delay in sec before WAL is flushed")
 
 	kaep = keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second, // If a client pings more than once every 5 seconds, terminate the connection
@@ -60,14 +62,24 @@ func main() {
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	logger := log.New(log.Writer(), "", log.LstdFlags)
+	sqldb, err := db.NewSQLDBStorage(*dbPath)
+	if err != nil {
+		log.Fatalf("failed to create SQLDBStorage: %v", err)
+	}
+
+	tickerDelay := time.Duration(*syncDelay) * time.Second
+
 	config := &cache.CacheConfig{
-		CacheSize:        10,
-		RoCacheSize:      65536,
-		MaxSizeOfChannel: 8192,
-		WalPath:          *walPath,
-		DBStorage:        db.NewInMemoryDatabase(),
-		Logger:           logger,
-		SlogPath:         *slogPath,
+		CacheSize:         10,
+		RoCacheSize:       65536,
+		MaxSizeOfChannel:  8192,
+		WalPath:           *walPath,
+		DBStorage:         sqldb,
+		Logger:            logger,
+		SlogPath:          *slogPath,
+		WalSegmentSize:    1024 * 1024 * 10,
+		WalMaxWithoutSync: 4096,
+		TickerDelay:       tickerDelay,
 	}
 	cServer := cacheService.New(config)
 	if cServer == nil {

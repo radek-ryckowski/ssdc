@@ -74,18 +74,17 @@ func main() {
 			log.Fatalf("could not get value: %v", err)
 			os.Exit(2)
 		}
-		fmt.Println("debug: ", resp)
+		if !resp.Found {
+			fmt.Println("Client GET KEY not found")
+			os.Exit(1)
+		}
 		payload := &pbData.Payload{}
 		err = resp.Value.UnmarshalTo(payload)
 		if err != nil {
 			log.Fatalf("could not unmarshal anypb: %v", err)
 			os.Exit(2)
 		}
-		if !resp.Found {
-			fmt.Println("GET Response.Value: not found")
-			os.Exit(1)
-		}
-		fmt.Printf("GET Response.Value: %v\n", payload.Value)
+		fmt.Printf("Client GET Response.Value: %v\n", payload.Value)
 		os.Exit(0)
 	}
 }

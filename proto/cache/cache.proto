@@ -14,6 +14,7 @@ message SetRequest {
   string uuid = 1;
   google.protobuf.Any value = 2;
   bool local = 3;
+  int32 quorum = 4;
 }
 
 message SetResponse {
@@ -23,9 +24,15 @@ message SetResponse {
 
 message GetRequest {
   string uuid = 1;
+  bool local = 2;
 }
 
 message GetResponse {
   google.protobuf.Any value = 1;
   bool found = 2;
+}
+
+message KeyValue {
+  bytes key = 1;
+  bytes value = 2;
 }
