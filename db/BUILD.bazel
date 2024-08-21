@@ -5,4 +5,5 @@ go_library(
     srcs = ["db.go"],
     importpath = "github.com/radek-ryckowski/ssdc/db",
     visibility = ["//visibility:public"],
+    deps = ["//proto/cache"],
 )

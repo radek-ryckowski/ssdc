@@ -13,7 +13,7 @@ mkdir -p /tmp/3
 sleep 1
 
 array=(127.0.0.1:50051 127.0.0.1:50052 127.0.0.1:50053)
-breakNumber=10
+breakNumber=22
 a=0
 while true
 do

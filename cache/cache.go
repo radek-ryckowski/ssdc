@@ -163,7 +163,7 @@ func (c *Cache) WaitForSignal() {
 			c.logger.Println("Error opening WAL file:", err)
 			continue
 		}
-		pushToDb := make(map[string][]byte)
+		pushToDb := []*pb.KeyValue{}
 		reader := wal.NewReader()
 		for {
 			kv := &pb.KeyValue{}
@@ -176,7 +176,7 @@ func (c *Cache) WaitForSignal() {
 				c.logger.Println("Error unmarshalling data:", err)
 				continue
 			}
-			pushToDb[string(kv.Key)] = kv.Value
+			pushToDb = append(pushToDb, kv)
 		}
 		succeded := false
 		if err := c.dbStorage.Push(pushToDb); err != nil {
@@ -188,8 +188,8 @@ func (c *Cache) WaitForSignal() {
 		wal.Close()
 		if succeded {
 			c.mu.Lock()
-			for k := range pushToDb {
-				delete(c.store, k)
+			for _, kv := range pushToDb {
+				delete(c.store, string(kv.Key))
 			}
 
 			if err := wal.Delete(); err != nil {

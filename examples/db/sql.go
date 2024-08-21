@@ -8,6 +8,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	pb "github.com/radek-ryckowski/ssdc/examples/proto/data"
+	cachepb "github.com/radek-ryckowski/ssdc/proto/cache"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -46,20 +47,19 @@ func NewSQLDBStorage(dataSourceName string) (*SQLDBStorage, error) {
 }
 
 // Push inserts a batch of key-value pairs into the database
-func (s *SQLDBStorage) Push(batch map[string][]byte) error {
+func (s *SQLDBStorage) Push(batch []*cachepb.KeyValue) error {
 	dbData := make(map[string]*pb.Payload)
-	for k, v := range batch {
+	for _, kv := range batch {
 		anyEntry := anypb.Any{}
-		if err := proto.Unmarshal(v, &anyEntry); err != nil {
+		if err := proto.Unmarshal(kv.Value, &anyEntry); err != nil {
 			return annotateError(err)
 		}
-		data := &pb.Payload{}
-		fmt.Println(string(v))
-		err := anyEntry.UnmarshalTo(data)
+		payload := &pb.Payload{}
+		err := anyEntry.UnmarshalTo(payload)
 		if err != nil {
 			return annotateError(err)
 		}
-		dbData[k] = data
+		dbData[string(kv.Key)] = payload
 	}
 	// check and remove all keys which already exist in the database
 	tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
@@ -115,11 +115,11 @@ func (s *SQLDBStorage) Get(key string) ([]byte, error) {
 		Sum:   sum,
 		Id:    id,
 	}
-	buffer, err := proto.Marshal(data)
+	anypbData, err := anypb.New(data)
 	if err != nil {
 		return nil, annotateError(err)
 	}
-	return buffer, nil
+	return proto.Marshal(anypbData)
 }
 
 // Close closes the database connection
