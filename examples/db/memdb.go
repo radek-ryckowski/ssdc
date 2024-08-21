@@ -1,6 +1,10 @@
 package db
 
-import "sync"
+import (
+	"sync"
+
+	pb "github.com/radek-ryckowski/ssdc/proto/cache"
+)
 
 type InMemoryDatabase struct {
 	data map[string][]byte
@@ -13,11 +17,11 @@ func NewInMemoryDatabase() *InMemoryDatabase {
 	}
 }
 
-func (db *InMemoryDatabase) Push(batch map[string][]byte) error {
+func (db *InMemoryDatabase) Push(batch []*pb.KeyValue) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	for k, v := range batch {
-		db.data[k] = v
+	for _, kv := range batch {
+		db.data[string(kv.Key)] = kv.Value
 	}
 	return nil
 }
