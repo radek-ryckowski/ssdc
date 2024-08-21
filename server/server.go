@@ -42,6 +42,7 @@ type Server struct {
 
 func (s *Server) Start() {
 	go s.c.WaitForSignal()
+	go s.c.Tick()
 
 	ticker := time.NewTicker(10 * time.Second)
 	go func() {
@@ -93,14 +94,11 @@ func (s *Server) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, 
 	if req.Local {
 		return &pb.SetResponse{Success: true, ConsistentNodes: nodeCount}, nil
 	}
-	reqQuorum := int(req.Quorum)
-	quorun := reqQuorum
-	if reqQuorum < 2 {
+	rQuorum := int(req.Quorum)
+	quorum := rQuorum
+	if quorum < 2 {
 		quorum = len(s.peers) / 2 // local +1
 	}
-	// Store the value in the peers using go routines to avoid blocking if quorum number of peers return success response is true
-	// use context with timeout to avoid blocking forever
-
 	var successCount int
 	var wg sync.WaitGroup
 	wg.Add(len(s.peers)) // wait only for quorum number of peers to respond with success

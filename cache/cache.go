@@ -64,6 +64,7 @@ type CacheConfig struct {
 	SlogPath          string
 	WalSegmentSize    int64
 	WalMaxWithoutSync uint32
+	TickerDelay       time.Duration
 }
 
 // Cache struct to hold the channel, a counter, a mutex, a wait group, and a logger
@@ -79,6 +80,8 @@ type Cache struct {
 	logger     Logger
 	roCache    *LRUCache
 	walOptions wal.Options
+	// add new ticker
+	ticker *time.Ticker
 }
 
 // NewCache creates a new Cache instance with a logger
@@ -108,7 +111,40 @@ func NewCache(config *CacheConfig) *Cache {
 		return nil
 	}
 	cache.wal = wal
+	// start ticker
+	cache.ticker = time.NewTicker(config.TickerDelay)
 	return cache
+}
+
+func (c *Cache) Tick() {
+	for range c.ticker.C {
+		if c.counter > 0 {
+			if err := c.SyncWAL(); err != nil {
+				c.logger.Println("Error syncing WAL:", err)
+			}
+		}
+	}
+}
+
+func (c *Cache) SyncWAL() error {
+	c.wal.Sync()
+	if err := c.wal.Close(); err != nil {
+		return err
+	}
+	timestamp := time.Now().UnixNano()
+	walPath := path.Join(c.walPath, WalName)
+	oldWalPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, timestamp))
+	if err := os.Rename(walPath, oldWalPath); err != nil {
+		return err
+	}
+	wal, err := wal.Open(c.walOptions)
+	if err != nil {
+		return err
+	}
+	c.wal = wal
+	c.signalChan <- int64(timestamp)
+	c.counter = 0
+	return nil
 }
 
 // Store method to store a key-value pair in the cache
@@ -130,23 +166,9 @@ func (c *Cache) Store(key, value []byte) error {
 	c.counter++
 
 	if c.counter >= c.cacheSize {
-		c.wal.Sync()
-		if err := c.wal.Close(); err != nil {
+		if err := c.SyncWAL(); err != nil {
 			return err
 		}
-		timestamp := time.Now().UnixNano()
-		walPath := path.Join(c.walPath, WalName)
-		oldWalPath := path.Join(c.walPath, fmt.Sprintf("%s.%d", WalName, timestamp))
-		if err := os.Rename(walPath, oldWalPath); err != nil {
-			return err
-		}
-		wal, err := wal.Open(c.walOptions)
-		if err != nil {
-			return err
-		}
-		c.wal = wal
-		c.signalChan <- int64(timestamp)
-		c.counter = 0
 	}
 	return nil
 }
@@ -191,7 +213,6 @@ func (c *Cache) WaitForSignal() {
 			for _, kv := range pushToDb {
 				delete(c.store, string(kv.Key))
 			}
-
 			if err := wal.Delete(); err != nil {
 				walErrors.Inc()
 				c.logger.Println("Error removing WAL file:", err)
@@ -231,5 +252,6 @@ func (c *Cache) Get(key []byte) ([]byte, error) {
 
 // CloseSignalChannel method to close the signal channel
 func (c *Cache) CloseSignalChannel() {
+	c.ticker.Stop()
 	close(c.signalChan)
 }
