@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lotusdblabs/lotusdb/v2"
 	"github.com/radek-ryckowski/ssdc/cluster"
 	pb "github.com/radek-ryckowski/ssdc/proto/cache"
+	"github.com/syndtr/goleveldb/leveldb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -22,7 +22,7 @@ type Node struct {
 
 type Updater struct {
 	Path               string // Path to updater database
-	db                 *lotusdb.DB
+	db                 *leveldb.DB
 	mx                 sync.RWMutex
 	startSyncing       chan bool
 	StopTicker         chan bool
@@ -32,9 +32,7 @@ type Updater struct {
 }
 
 func New(path string) *Updater {
-	options := lotusdb.DefaultOptions
-	options.DirPath = path
-	db, err := lotusdb.Open(options)
+	db, err := leveldb.OpenFile(path, nil)
 	if err != nil {
 		log.Printf("failed to open database: %v", err)
 		return nil
@@ -97,11 +95,8 @@ func (u *Updater) WalkAndSend() {
 	}()
 
 	// Walk through the database
-	iter, err := u.db.NewIterator(lotusdb.IteratorOptions{Reverse: false})
-	if err != nil {
-		panic(err)
-	}
-	for iter.Valid() {
+	iter := u.db.NewIterator(nil, nil)
+	for iter.Next() {
 		// remove last 4 bytesfrom the key (random sufix)
 		uuid := iter.Key()[:len(iter.Key())-4]
 		nodeID := int(big.NewInt(0).SetBytes(iter.Value()).Int64())
@@ -134,16 +129,18 @@ func (u *Updater) WalkAndSend() {
 			}
 			// delete from db
 			u.mx.Lock()
-			u.db.Delete(uuid)
+			u.db.Delete(uuid, nil)
 			u.mx.Unlock()
 		}
-		iter.Next()
 	}
-
+	iter.Release()
+	if err := iter.Error(); err != nil {
+		log.Printf("sync error walking through db: %v", err)
+	}
 }
 
 func (u *Updater) Put(key, value []byte) error {
 	u.mx.Lock()
 	defer u.mx.Unlock()
-	return u.db.Put(key, value)
+	return u.db.Put(key, value, nil)
 }
