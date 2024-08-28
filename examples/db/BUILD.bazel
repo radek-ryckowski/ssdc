@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "db",
+    srcs = [
+        "memdb.go",
+        "sql.go",
+    ],
+    importpath = "github.com/radek-ryckowski/ssdc/examples/db",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//examples/proto/data",
+        "//proto/cache",
+        "@com_github_mattn_go_sqlite3//:go-sqlite3",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//types/known/anypb",
+    ],
+)

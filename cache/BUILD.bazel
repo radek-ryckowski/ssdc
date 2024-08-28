@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "cache",
+    srcs = [
+        "cache.go",
+        "lru.go",
+    ],
+    importpath = "github.com/radek-ryckowski/ssdc/cache",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//db",
+        "//proto/cache",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promauto",
+        "@com_github_rosedblabs_wal//:wal",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

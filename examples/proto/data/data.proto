@@ -1,0 +1,10 @@
+syntax = "proto3";
+option go_package = "github.com/radek-ryckowski/ssdc/examples/proto/data;data";
+
+package data;
+
+message Payload {
+  string value = 1; 
+  string sum = 2;
+  int64 id = 3;
+}
