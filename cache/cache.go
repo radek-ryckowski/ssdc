@@ -113,6 +113,12 @@ func NewCache(config *CacheConfig) *Cache {
 		return nil
 	}
 	cache.wal = wal
+	err = cache.Recovery()
+	if err != nil {
+		walErrors.Inc()
+		cache.logger.Println("Error recovering from WAL:", err)
+		return nil
+	}
 	// start ticker
 	cache.ticker = time.NewTicker(config.TickerDelay)
 	return cache
@@ -174,6 +180,31 @@ func (c *Cache) Store(key, value []byte) error {
 		if err := c.SyncWAL(); err != nil {
 			return status.Error(codes.Internal, err.Error())
 		}
+	}
+	return nil
+}
+
+func (c *Cache) Recovery() error {
+	reader := c.wal.NewReader()
+	recoveryCounter := 0
+	for {
+		kv := &pb.KeyValue{}
+		data, _, err := reader.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				return status.Error(codes.Internal, err.Error())
+			}
+		}
+		if err := proto.Unmarshal(data, kv); err != nil {
+			return status.Error(codes.Internal, err.Error())
+		}
+		c.store[string(kv.Key)] = kv.Value
+		recoveryCounter++
+	}
+	if recoveryCounter > 0 {
+		c.logger.Println("Recovered", recoveryCounter, "entries from WAL")
 	}
 	return nil
 }
@@ -259,4 +290,6 @@ func (c *Cache) Get(key []byte) ([]byte, error) {
 func (c *Cache) CloseSignalChannel() {
 	c.ticker.Stop()
 	close(c.signalChan)
+	c.wal.Sync()
+	c.wal.Close()
 }
